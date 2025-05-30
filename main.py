@@ -1,12 +1,11 @@
 import os
 import random
 import time
-import cv2
-import numpy as np
-import tkinter as tk
+from tkinter import Tk, Canvas
+from PIL import Image, ImageTk
 
 def get_screen_resolution():
-    root = tk.Tk()
+    root = Tk()
     root.withdraw()
     width = root.winfo_screenwidth()
     height = root.winfo_screenheight()
@@ -22,41 +21,49 @@ def show_images_fullscreen(folder_path):
     image_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path)
                    if os.path.splitext(f.lower())[1] in supported_exts]
 
+    if not image_files:
+        print("No supported image files found in the folder.")
+        return
+
     # Shuffle the images
     random.shuffle(image_files)
 
-    # Create a fullscreen window
-    cv2.namedWindow("Slideshow", cv2.WND_PROP_FULLSCREEN)
-    cv2.setWindowProperty("Slideshow", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    # Create a fullscreen tkinter window
+    root = Tk()
+    root.attributes('-fullscreen', True)
+    canvas = Canvas(root, width=screen_w, height=screen_h, bg="black")
+    canvas.pack()
 
-    for image_path in image_files:
-        img = cv2.imread(image_path)
-        if img is None:
-            print(f"Warning: Cannot read {image_path}")
-            continue
-
-        img_h, img_w = img.shape[:2]
+    def show_image(image_path):
+        img = Image.open(image_path)
+        img_w, img_h = img.size
 
         # --- Preserve aspect ratio ---
         scale = min(screen_w / img_w, screen_h / img_h)
         new_w = int(img_w * scale)
         new_h = int(img_h * scale)
-
-        resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        img = img.resize((new_w, new_h), Image.ANTIALIAS)
 
         # --- Center image on black background ---
-        canvas = np.zeros((screen_h, screen_w, 3), dtype=np.uint8)
-        x_offset = (screen_w - new_w) // 2
-        y_offset = (screen_h - new_h) // 2
-        canvas[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = resized_img
+        img_tk = ImageTk.PhotoImage(img)
+        canvas.delete("all")
+        canvas.create_image(screen_w // 2, screen_h // 2, image=img_tk, anchor="center")
+        root.update()
+        return img_tk  # Keep a reference to avoid garbage collection
 
-        cv2.imshow("Slideshow", canvas)
+    def close(event=None):
+        root.destroy()
 
-        key = cv2.waitKey(1000)  # Show each image for 1 second
-        if key == 27:  # ESC key
-            break
+    root.bind("<Escape>", close)  # Exit on ESC key
 
-    cv2.destroyAllWindows()
+    try:
+        for image_path in image_files:
+            img_ref = show_image(image_path)
+            time.sleep(1)  # Show each image for 1 second
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        root.destroy()
 
 if __name__ == "__main__":
     folder = input("Enter the path to the folder with images: ").strip('"')
