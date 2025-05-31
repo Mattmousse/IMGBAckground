@@ -1,13 +1,24 @@
 import os
 import random
-from tkinter import Tk, Canvas, filedialog, messagebox
+import sys
+from tkinter import Tk, Canvas, filedialog, messagebox, Toplevel, Label, Button, Frame, Listbox
 from PIL import Image, ImageTk
 
 class ImageViewer:
-    def __init__(self, folder_path):
+    def __init__(self, folder_path, screensaver_mode=False):
         self.root = Tk()
-        self.root.attributes('-fullscreen', True)
-        self.root.config(cursor="none")
+        self.screensaver_mode = screensaver_mode
+        
+        if screensaver_mode:
+            self.root.attributes('-fullscreen', True)
+            self.root.config(cursor="none")
+            # Bind mouse movement and clicks to exit in screensaver mode
+            self.root.bind("<Motion>", self.exit_screensaver)
+            self.root.bind("<Button-1>", self.exit_screensaver)
+            self.root.bind("<Key>", self.exit_screensaver)
+        else:
+            self.root.attributes('-fullscreen', True)
+            self.root.config(cursor="none")
         
         # Enhanced focus methods
         self.root.focus_force()
@@ -58,6 +69,11 @@ class ImageViewer:
         self.root.lift()
         self.canvas.focus_set()
         
+    def exit_screensaver(self, event=None):
+        """Exit screensaver mode"""
+        if self.screensaver_mode:
+            self.root.destroy()
+    
     def get_image_files(self, folders):
         supported_exts = ['.png', '.jpg', '.jpeg', '.bmp']
         files = []
@@ -217,31 +233,141 @@ class ImageViewer:
             except Exception as e:
                 messagebox.showerror("Error", f"Could not delete image:\n{e}")
 
+def save_config(folders):
+    """Save configuration to a file"""
+    config_path = os.path.join(os.path.expanduser("~"), "ImageViewerScreensaver.config")
+    try:
+        with open(config_path, 'w') as f:
+            for folder in folders:
+                f.write(folder + '\n')
+    except Exception as e:
+        print(f"Error saving config: {e}")
+
+def load_config():
+    """Load configuration from file"""
+    config_path = os.path.join(os.path.expanduser("~"), "ImageViewerScreensaver.config")
+    folders = []
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                folders = [line.strip() for line in f if line.strip() and os.path.isdir(line.strip())]
+    except Exception as e:
+        print(f"Error loading config: {e}")
+    return folders
+
+def show_config_dialog():
+    """Show configuration dialog for screensaver"""
+    root = Tk()
+    root.title("Image Screensaver Configuration")
+    root.geometry("500x400")
+    root.resizable(True, True)
+    
+    # Load existing config
+    folders = load_config()
+    
+    frame = Frame(root)
+    frame.pack(fill='both', expand=True, padx=10, pady=10)
+    
+    Label(frame, text="Image Folders:", font=('Arial', 12, 'bold')).pack(anchor='w')
+    
+    # Folder list
+    folder_listbox = Listbox(frame, height=10)
+    folder_listbox.pack(fill='both', expand=True, pady=5)
+    
+    for folder in folders:
+        folder_listbox.insert('end', folder)
+    
+    # Buttons
+    button_frame = Frame(frame)
+    button_frame.pack(fill='x', pady=5)
+    
+    def add_folder():
+        folder = filedialog.askdirectory(title="Select Images Folder")
+        if folder and os.path.isdir(folder):
+            folder_listbox.insert('end', folder)
+    
+    def remove_folder():
+        selection = folder_listbox.curselection()
+        if selection:
+            folder_listbox.delete(selection[0])
+    
+    def save_and_close():
+        folders = list(folder_listbox.get(0, 'end'))
+        save_config(folders)
+        root.destroy()
+    
+    Button(button_frame, text="Add Folder", command=add_folder).pack(side='left', padx=5)
+    Button(button_frame, text="Remove", command=remove_folder).pack(side='left', padx=5)
+    Button(button_frame, text="OK", command=save_and_close).pack(side='right', padx=5)
+    Button(button_frame, text="Cancel", command=root.destroy).pack(side='right', padx=5)
+    
+    root.mainloop()
+
+def show_preview(hwnd=None):
+    """Show preview in screensaver settings (simplified)"""
+    # Don't show any preview window - just exit silently
+    # Windows will handle the preview in its own preview area
+    pass
+
 if __name__ == "__main__":
+    # Handle Windows screensaver command line arguments
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
+        
+        if arg.startswith('/c') or arg.startswith('-c'):
+            # Configuration mode
+            show_config_dialog()
+            sys.exit(0)
+            
+        elif arg.startswith('/p') or arg.startswith('-p'):
+            # Preview mode
+            hwnd = None
+            if len(sys.argv) > 2:
+                try:
+                    hwnd = int(sys.argv[2])
+                except ValueError:
+                    pass
+            show_preview(hwnd)
+            sys.exit(0)
+            
+        elif arg.startswith('/s') or arg.startswith('-s'):
+            # Screensaver mode
+            folders = load_config()
+            if folders:
+                ImageViewer(folders, screensaver_mode=True)
+            else:
+                # No configuration found, show config dialog
+                show_config_dialog()
+            sys.exit(0)
+    
+    # Normal mode (no arguments or manual run)
     root = Tk()
     root.withdraw()
     
-    folders = []
+    folders = load_config()
     
-    # Allow selecting multiple folders
-    while True:
-        folder = filedialog.askdirectory(
-            title=f"Select Images Folder {len(folders) + 1} (Cancel to finish)",
-            initialdir=os.path.expanduser("~/Pictures")
-        )
-        if not folder:
-            break
-        if os.path.isdir(folder):
-            folders.append(folder)
-        
-        # Ask if user wants to add more folders
-        if folders:
-            add_more = messagebox.askyesno(
-                "Add More Folders?", 
-                f"Added {len(folders)} folder(s). Add another folder?"
+    if not folders:
+        # Allow selecting multiple folders
+        while True:
+            folder = filedialog.askdirectory(
+                title=f"Select Images Folder {len(folders) + 1} (Cancel to finish)",
+                initialdir=os.path.expanduser("~/Pictures")
             )
-            if not add_more:
+            if not folder:
                 break
+            if os.path.isdir(folder):
+                folders.append(folder)
+            
+            # Ask if user wants to add more folders
+            if folders:
+                add_more = messagebox.askyesno(
+                    "Add More Folders?", 
+                    f"Added {len(folders)} folder(s). Add another folder?"
+                )
+                if not add_more:
+                    break
+        
+        save_config(folders)
     
     root.destroy()
     
