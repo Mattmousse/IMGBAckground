@@ -9,12 +9,25 @@ class ImageViewer:
         self.root.attributes('-fullscreen', True)
         self.root.config(cursor="none")
         
+        # Enhanced focus methods
+        self.root.focus_force()
+        self.root.lift()
+        self.root.attributes('-topmost', True)
+        self.root.update()  # Process pending events
+        self.root.focus_set()
+        self.root.grab_set()  # Grab all events
+        self.root.after(100, lambda: self.root.attributes('-topmost', False))
+        self.root.after(200, lambda: self.root.grab_release())  # Release grab after focus is set
+        
         self.screen_w = self.root.winfo_screenwidth()
         self.screen_h = self.root.winfo_screenheight()
-        
         self.canvas = Canvas(self.root, width=self.screen_w, height=self.screen_h, bg="black", 
                              highlightthickness=0, bd=0, relief='flat')
         self.canvas.pack()
+        
+        # Additional focus for canvas
+        self.canvas.focus_set()
+        self.canvas.focus_force()
         
         # Image handling
         self.current_image = None
@@ -33,10 +46,18 @@ class ImageViewer:
         self.root.bind("<Left>", self.previous_image)
         self.root.bind("<Right>", self.next_image)
         self.root.bind("<Delete>", self.delete_current_image)
-        
         if self.image_files:
             self.update_image()
+            # Final focus attempt after everything is set up
+            self.root.after(300, self._ensure_focus)
             self.root.mainloop()
+    
+    def _ensure_focus(self):
+        """Ensure the window has focus after initialization"""
+        self.root.focus_force()
+        self.root.lift()
+        self.canvas.focus_set()
+        
     def get_image_files(self, folders):
         supported_exts = ['.png', '.jpg', '.jpeg', '.bmp']
         files = []
