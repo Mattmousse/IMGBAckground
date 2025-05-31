@@ -1,6 +1,7 @@
 import os
 import random
 import sys
+import platform
 from tkinter import Tk, Canvas, filedialog, messagebox, Toplevel, Label, Button, Frame, Listbox
 from PIL import Image, ImageTk
 
@@ -9,26 +10,42 @@ class ImageViewer:
         self.root = Tk()
         self.screensaver_mode = screensaver_mode
         
+        # macOS-specific window setup
+        if platform.system() == "Darwin":  # macOS
+            # Make window appear on all spaces/desktops
+            self.root.call('::tk::unsupported::MacWindowStyle', 'style', self.root._w, 'utility')
+        
         if screensaver_mode:
             self.root.attributes('-fullscreen', True)
-            self.root.config(cursor="none")
+            # Hide cursor on macOS
+            if platform.system() == "Darwin":
+                self.root.config(cursor="none")
             # Bind mouse movement and clicks to exit in screensaver mode
             self.root.bind("<Motion>", self.exit_screensaver)
             self.root.bind("<Button-1>", self.exit_screensaver)
             self.root.bind("<Key>", self.exit_screensaver)
         else:
             self.root.attributes('-fullscreen', True)
-            self.root.config(cursor="none")
+            if platform.system() == "Darwin":
+                self.root.config(cursor="none")
         
-        # Enhanced focus methods
+        # Enhanced focus methods (adapted for macOS)
         self.root.focus_force()
         self.root.lift()
-        self.root.attributes('-topmost', True)
+        if platform.system() == "Darwin":
+            # macOS-specific bring to front
+            self.root.call('::tk::unsupported::MacWindowStyle', 'style', self.root._w, 'moveToActiveSpace')
+        else:
+            self.root.attributes('-topmost', True)
+        
         self.root.update()  # Process pending events
         self.root.focus_set()
-        self.root.grab_set()  # Grab all events
-        self.root.after(100, lambda: self.root.attributes('-topmost', False))
-        self.root.after(200, lambda: self.root.grab_release())  # Release grab after focus is set
+        
+        # Less aggressive focus grabbing on macOS
+        if platform.system() != "Darwin":
+            self.root.grab_set()
+            self.root.after(100, lambda: self.root.attributes('-topmost', False))
+            self.root.after(200, lambda: self.root.grab_release())
         
         self.screen_w = self.root.winfo_screenwidth()
         self.screen_h = self.root.winfo_screenheight()
@@ -48,18 +65,21 @@ class ImageViewer:
         
         # Add text for file info
         self.info_text = None
-          # Timer ID for slideshow
+        
+        # Timer ID for slideshow
         self.after_id = None
         
-        # Slideshow state
-        self.slideshow_paused = False
-        
-        # Bind events
+        # Bind events (including macOS Command key combinations)
         self.root.bind("<Escape>", lambda e: self.root.destroy())
         self.root.bind("<Left>", self.previous_image)
         self.root.bind("<Right>", self.next_image)
+        
+        # macOS uses Cmd+Delete for delete, but also support regular Delete
         self.root.bind("<Delete>", self.delete_current_image)
-        self.root.bind("<space>", self.toggle_slideshow)  # Pause/resume with spacebar
+        if platform.system() == "Darwin":
+            self.root.bind("<Command-Delete>", self.delete_current_image)
+            self.root.bind("<BackSpace>", self.delete_current_image)
+        
         if self.image_files:
             self.update_image()
             # Final focus attempt after everything is set up
@@ -76,8 +96,14 @@ class ImageViewer:
         """Exit screensaver mode"""
         if self.screensaver_mode:
             self.root.destroy()
+    
     def get_image_files(self, folders):
-        supported_exts = ['.png', '.jpg', '.jpeg', '.jpe', '.bmp', '.gif', '.tiff', '.tif', '.webp', '.heic']
+        # Add HEIC support for macOS
+        if platform.system() == "Darwin":
+            supported_exts = ['.png', '.jpg', '.jpeg', '.bmp', '.heic', '.heif', '.tiff', '.tif']
+        else:
+            supported_exts = ['.png', '.jpg', '.jpeg', '.bmp']
+        
         files = []
         # Handle both single folder and list of folders
         if isinstance(folders, str):
@@ -151,7 +177,8 @@ class ImageViewer:
                 image=self.current_image, 
                 anchor="center"
             )
-              # Update file info text with relative subfolder path
+            
+            # Update file info text with relative subfolder path
             abs_path = self.image_files[self.current_index]
             # For multiple folders, try to find the best relative path
             if isinstance(self.folder_path, list):
@@ -168,25 +195,35 @@ class ImageViewer:
                 info = best_rel_path.replace("\\", " / ")
             else:
                 rel_path = os.path.relpath(abs_path, self.folder_path)
-                info = rel_path.replace("\\", " / ")  # For nicer display on Windows
+                info = rel_path.replace("\\", " / ")  # For consistency across platforms
             
             # Delete old text and create new
             if self.info_text:
                 self.canvas.delete(self.info_text)
+            
+            # Use system font on macOS
+            if platform.system() == "Darwin":
+                font_family = "SF Pro Display"
+            else:
+                font_family = "Arial"
+                
             self.info_text = self.canvas.create_text(
                 10, self.screen_h - 10,  # Position in bottom-left corner
                 text=info,
                 fill="white",
                 anchor="sw",  # Southwest alignment
-                font=("Arial", 12)
+                font=(font_family, 12)
             )
             
             # Update index for next image
-            self.current_index = (self.current_index + 1) % len(self.image_files)            # Schedule next update only if not manual navigation
+            self.current_index = (self.current_index + 1) % len(self.image_files)
+            
+            # Schedule next update only if not manual navigation
             if not manual:
                 self.after_id = self.root.after(1500, self.update_image)
             else:
-                self.after_id = self.root.after(2500, self.update_image)  # Resume slideshow after 5s
+                self.after_id = self.root.after(2500, self.update_image)  # Resume slideshow after 2.5s
+                
         except Exception as e:
             print(f"Error loading image: {e}")
             self.current_index = (self.current_index + 1) % len(self.image_files)
@@ -194,20 +231,7 @@ class ImageViewer:
                 self.after_id = self.root.after(100, self.update_image)
             else:
                 self.after_id = self.root.after(5000, self.update_image)
-                
-    def toggle_slideshow(self, event=None):
-        """Toggle slideshow pause/resume with spacebar"""
-        if self.slideshow_paused:
-            # Resume slideshow
-            self.slideshow_paused = False
-            self.after_id = self.root.after(1500, self.update_image)
-        else:
-            # Pause slideshow
-            self.slideshow_paused = True
-            if self.after_id:
-                self.root.after_cancel(self.after_id)
-                self.after_id = None
-                
+    
     def delete_current_image(self, event=None):
         if not self.image_files:
             return
@@ -237,15 +261,33 @@ class ImageViewer:
                 rel_path = img_path
         else:
             rel_path = os.path.relpath(img_path, self.folder_path)
-            
-        confirm = messagebox.askyesno(
-            "Delete Image",
-            f"Do you really want to delete this image?\n{rel_path}"
-        )
+        
+        # macOS-style confirmation dialog
+        if platform.system() == "Darwin":
+            confirm = messagebox.askyesno(
+                "Move to Trash",
+                f"Do you want to move this image to the Trash?\n{rel_path}",
+                icon='warning'
+            )
+        else:
+            confirm = messagebox.askyesno(
+                "Delete Image",
+                f"Do you really want to delete this image?\n{rel_path}"
+            )
         
         if confirm:
             try:
-                os.remove(img_path)
+                # On macOS, try to move to Trash instead of permanent deletion
+                if platform.system() == "Darwin":
+                    try:
+                        import subprocess
+                        subprocess.run(['osascript', '-e', f'tell app "Finder" to delete POSIX file "{img_path}"'], check=True)
+                    except (subprocess.CalledProcessError, FileNotFoundError):
+                        # Fallback to regular deletion if Trash move fails
+                        os.remove(img_path)
+                else:
+                    os.remove(img_path)
+                
                 del self.image_files[displayed_index]
                 if not self.image_files:
                     self.root.destroy()
@@ -259,12 +301,25 @@ class ImageViewer:
                 messagebox.showerror("Error", f"Could not delete image:\n{e}")
                 # Resume slideshow after error
                 self.after_id = self.root.after(2500, self.update_image)
-        else:            # Resume slideshow if user cancelled deletion
+        else:
+            # Resume slideshow if user cancelled deletion
             self.after_id = self.root.after(2500, self.update_image)
+
+def get_config_path():
+    """Get platform-appropriate config file path"""
+    if platform.system() == "Darwin":
+        # macOS: Use Application Support directory
+        app_support = os.path.expanduser("~/Library/Application Support")
+        config_dir = os.path.join(app_support, "ImageScreensaver")
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, "config.txt")
+    else:
+        # Other platforms: Use home directory
+        return os.path.join(os.path.expanduser("~"), "ImageViewerScreensaver.config")
 
 def save_config(folders):
     """Save configuration to a file"""
-    config_path = os.path.join(os.path.expanduser("~"), "ImageViewerScreensaver.config")
+    config_path = get_config_path()
     try:
         with open(config_path, 'w') as f:
             for folder in folders:
@@ -274,7 +329,7 @@ def save_config(folders):
 
 def load_config():
     """Load configuration from file"""
-    config_path = os.path.join(os.path.expanduser("~"), "ImageViewerScreensaver.config")
+    config_path = get_config_path()
     folders = []
     try:
         if os.path.exists(config_path):
@@ -288,8 +343,12 @@ def show_config_dialog():
     """Show configuration dialog for screensaver"""
     root = Tk()
     root.title("Image Screensaver Configuration")
-    root.geometry("600x450")
+    root.geometry("600x500")
     root.resizable(True, True)
+    
+    # macOS-specific styling
+    if platform.system() == "Darwin":
+        root.configure(bg='#f0f0f0')
     
     # Load existing config
     folders = load_config()
@@ -297,25 +356,38 @@ def show_config_dialog():
     frame = Frame(root)
     frame.pack(fill='both', expand=True, padx=20, pady=20)
     
-    # Modern Windows styling
-    Label(frame, text="Image Folders:", font=('Segoe UI', 12, 'bold')).pack(anchor='w', pady=(0, 5))
-    Label(frame, text="Select folders containing images for the screensaver slideshow:", 
-          font=('Segoe UI', 9), fg='gray40').pack(anchor='w', pady=(0, 10))
+    # Use platform-appropriate font
+    if platform.system() == "Darwin":
+        title_font = ("SF Pro Display", 14, "bold")
+        button_font = ("SF Pro Display", 12)
+    else:
+        title_font = ("Arial", 12, "bold")
+        button_font = ("Arial", 10)
+    
+    Label(frame, text="Image Folders:", font=title_font).pack(anchor='w')
     
     # Folder list
-    folder_listbox = Listbox(frame, height=12, font=('Segoe UI', 9))
-    folder_listbox.pack(fill='both', expand=True, pady=(0, 10))
+    folder_listbox = Listbox(frame, height=12, font=("Monaco", 11) if platform.system() == "Darwin" else ("Courier", 9))
+    folder_listbox.pack(fill='both', expand=True, pady=10)
     
     for folder in folders:
         folder_listbox.insert('end', folder)
     
-    # Buttons with modern styling
+    # Buttons
     button_frame = Frame(frame)
     button_frame.pack(fill='x', pady=10)
     
     def add_folder():
-        folder = filedialog.askdirectory(title="Select Images Folder",
-                                       initialdir=os.path.expanduser("~/Pictures"))
+        # Default to Pictures folder on macOS
+        if platform.system() == "Darwin":
+            initial_dir = os.path.expanduser("~/Pictures")
+        else:
+            initial_dir = os.path.expanduser("~/Pictures")
+            
+        folder = filedialog.askdirectory(
+            title="Select Images Folder",
+            initialdir=initial_dir
+        )
         if folder and os.path.isdir(folder):
             folder_listbox.insert('end', folder)
     
@@ -329,45 +401,60 @@ def show_config_dialog():
         save_config(folders)
         root.destroy()
     
-    Button(button_frame, text="Add Folder", command=add_folder, 
-           font=('Segoe UI', 10), width=12).pack(side='left', padx=(0, 5))
-    Button(button_frame, text="Remove", command=remove_folder, 
-           font=('Segoe UI', 10), width=12).pack(side='left', padx=5)
-    Button(button_frame, text="Cancel", command=root.destroy, 
-           font=('Segoe UI', 10), width=12).pack(side='right', padx=(5, 0))
-    Button(button_frame, text="OK", command=save_and_close, 
-           font=('Segoe UI', 10), width=12).pack(side='right', padx=5)
+    # macOS-style button layout (OK/Cancel on right)
+    if platform.system() == "Darwin":
+        Button(button_frame, text="Add Folder", command=add_folder, font=button_font).pack(side='left', padx=5)
+        Button(button_frame, text="Remove", command=remove_folder, font=button_font).pack(side='left', padx=5)
+        Button(button_frame, text="Cancel", command=root.destroy, font=button_font).pack(side='right', padx=5)
+        Button(button_frame, text="OK", command=save_and_close, font=button_font).pack(side='right', padx=5)
+    else:
+        Button(button_frame, text="Add Folder", command=add_folder).pack(side='left', padx=5)
+        Button(button_frame, text="Remove", command=remove_folder).pack(side='left', padx=5)
+        Button(button_frame, text="OK", command=save_and_close).pack(side='right', padx=5)
+        Button(button_frame, text="Cancel", command=root.destroy).pack(side='right', padx=5)
+    
+    # Center the window on macOS
+    if platform.system() == "Darwin":
+        root.update_idletasks()
+        x = (root.winfo_screenwidth() // 2) - (root.winfo_width() // 2)
+        y = (root.winfo_screenheight() // 2) - (root.winfo_height() // 2)
+        root.geometry(f"+{x}+{y}")
     
     root.mainloop()
 
 def show_preview(hwnd=None):
-    """Show preview in screensaver settings (simplified)"""
-    # Don't show any preview window - just exit silently
-    # Windows will handle the preview in its own preview area
+    """Show preview (not used on macOS)"""
     pass
 
+def install_macos_screensaver():
+    """Instructions for installing on macOS"""
+    instructions = """
+    To use this as a screensaver on macOS:
+    
+    1. Create a .app bundle or use py2app
+    2. Move to /Users/[username]/Library/Screen Savers/
+    3. Or use System Preferences > Desktop & Screen Saver
+    
+    For now, you can run this manually or create a launch agent.
+    """
+    print(instructions)
+
 if __name__ == "__main__":
-    # Handle Windows screensaver command line arguments
+    # Handle command line arguments (adapted for macOS)
     if len(sys.argv) > 1:
         arg = sys.argv[1].lower()
         
-        if arg.startswith('/c') or arg.startswith('-c'):
+        if arg in ['-configure', '--configure', '-c']:
             # Configuration mode
             show_config_dialog()
             sys.exit(0)
             
-        elif arg.startswith('/p') or arg.startswith('-p'):
-            # Preview mode
-            hwnd = None
-            if len(sys.argv) > 2:
-                try:
-                    hwnd = int(sys.argv[2])
-                except ValueError:
-                    pass
-            show_preview(hwnd)
+        elif arg in ['-preview', '--preview', '-p']:
+            # Preview mode (not really used on macOS)
+            show_preview()
             sys.exit(0)
             
-        elif arg.startswith('/s') or arg.startswith('-s'):
+        elif arg in ['-screensaver', '--screensaver', '-s']:
             # Screensaver mode
             folders = load_config()
             if folders:
@@ -375,6 +462,11 @@ if __name__ == "__main__":
             else:
                 # No configuration found, show config dialog
                 show_config_dialog()
+            sys.exit(0)
+            
+        elif arg in ['-install', '--install']:
+            # Show installation instructions
+            install_macos_screensaver()
             sys.exit(0)
     
     # Normal mode (no arguments or manual run)
@@ -386,9 +478,15 @@ if __name__ == "__main__":
     if not folders:
         # Allow selecting multiple folders
         while True:
+            # Default to Pictures folder on macOS
+            if platform.system() == "Darwin":
+                initial_dir = os.path.expanduser("~/Pictures")
+            else:
+                initial_dir = os.path.expanduser("~/Pictures")
+                
             folder = filedialog.askdirectory(
                 title=f"Select Images Folder {len(folders) + 1} (Cancel to finish)",
-                initialdir=os.path.expanduser("~/Pictures")
+                initialdir=initial_dir
             )
             if not folder:
                 break
