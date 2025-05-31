@@ -12,7 +12,8 @@ class ImageViewer:
         self.screen_w = self.root.winfo_screenwidth()
         self.screen_h = self.root.winfo_screenheight()
         
-        self.canvas = Canvas(self.root, width=self.screen_w, height=self.screen_h, bg="black")
+        self.canvas = Canvas(self.root, width=self.screen_w, height=self.screen_h, bg="black", 
+                             highlightthickness=0, bd=0, relief='flat')
         self.canvas.pack()
         
         # Image handling
