@@ -182,10 +182,9 @@ class ImageViewer:
             # Update index for next image
             self.current_index = (self.current_index + 1) % len(self.image_files)            # Schedule next update only if not manual navigation
             if not manual:
-                self.after_id = self.root.after(1000, self.update_image)
+                self.after_id = self.root.after(1500, self.update_image)
             else:
-                self.after_id = self.root.after(5000, self.update_image)  # Resume slideshow after 5s
-        
+                self.after_id = self.root.after(2500, self.update_image)  # Resume slideshow after 5s
         except Exception as e:
             print(f"Error loading image: {e}")
             self.current_index = (self.current_index + 1) % len(self.image_files)
@@ -193,11 +192,17 @@ class ImageViewer:
                 self.after_id = self.root.after(100, self.update_image)
             else:
                 self.after_id = self.root.after(5000, self.update_image)
-
     def delete_current_image(self, event=None):
         if not self.image_files:
             return
-        img_path = self.image_files[self.current_index]
+        
+        # Pause the slideshow while showing confirmation dialog
+        if self.after_id:
+            self.root.after_cancel(self.after_id)
+        
+        # Get the currently displayed image (the one we just showed)
+        displayed_index = (self.current_index - 1) % len(self.image_files)
+        img_path = self.image_files[displayed_index]
         
         # For multiple folders, find which folder this image belongs to
         if isinstance(self.folder_path, list):
@@ -221,17 +226,25 @@ class ImageViewer:
             "Delete Image",
             f"Do you really want to delete this image?\n{rel_path}"
         )
+        
         if confirm:
             try:
                 os.remove(img_path)
-                del self.image_files[self.current_index]
+                del self.image_files[displayed_index]
                 if not self.image_files:
                     self.root.destroy()
                     return
+                # Adjust current_index since we removed an image
+                if displayed_index < self.current_index:
+                    self.current_index -= 1
                 self.current_index %= len(self.image_files)
                 self.update_image(manual=True)
             except Exception as e:
                 messagebox.showerror("Error", f"Could not delete image:\n{e}")
+                # Resume slideshow after error
+                self.after_id = self.root.after(2500, self.update_image)
+        else:            # Resume slideshow if user cancelled deletion
+            self.after_id = self.root.after(2500, self.update_image)
 
 def save_config(folders):
     """Save configuration to a file"""
