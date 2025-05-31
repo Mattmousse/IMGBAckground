@@ -37,14 +37,18 @@ class ImageViewer:
         if self.image_files:
             self.update_image()
             self.root.mainloop()
-    
-    def get_image_files(self, folder):
+    def get_image_files(self, folders):
         supported_exts = ['.png', '.jpg', '.jpeg', '.bmp']
         files = []
-        for root, _, filenames in os.walk(folder):
-            for f in filenames:
-                if os.path.splitext(f.lower())[1] in supported_exts:
-                    files.append(os.path.join(root, f))
+        # Handle both single folder and list of folders
+        if isinstance(folders, str):
+            folders = [folders]
+        
+        for folder in folders:
+            for root, _, filenames in os.walk(folder):
+                for f in filenames:
+                    if os.path.splitext(f.lower())[1] in supported_exts:
+                        files.append(os.path.join(root, f))
         random.shuffle(files)
         return files
     
@@ -108,11 +112,24 @@ class ImageViewer:
                 image=self.current_image, 
                 anchor="center"
             )
-            
-            # Update file info text with relative subfolder path
+              # Update file info text with relative subfolder path
             abs_path = self.image_files[self.current_index]
-            rel_path = os.path.relpath(abs_path, self.folder_path)
-            info = rel_path.replace("\\", " / ")  # For nicer display on Windows
+            # For multiple folders, try to find the best relative path
+            if isinstance(self.folder_path, list):
+                # Find which folder this file belongs to
+                best_rel_path = abs_path
+                for folder in self.folder_path:
+                    try:
+                        rel_path = os.path.relpath(abs_path, folder)
+                        if not rel_path.startswith('..'):
+                            best_rel_path = f"{os.path.basename(folder)} / {rel_path}"
+                            break
+                    except ValueError:
+                        continue
+                info = best_rel_path.replace("\\", " / ")
+            else:
+                rel_path = os.path.relpath(abs_path, self.folder_path)
+                info = rel_path.replace("\\", " / ")  # For nicer display on Windows
             
             # Delete old text and create new
             if self.info_text:
@@ -126,14 +143,12 @@ class ImageViewer:
             )
             
             # Update index for next image
-            self.current_index = (self.current_index + 1) % len(self.image_files)
-
-            # Schedule next update only if not manual navigation
+            self.current_index = (self.current_index + 1) % len(self.image_files)            # Schedule next update only if not manual navigation
             if not manual:
                 self.after_id = self.root.after(1000, self.update_image)
             else:
                 self.after_id = self.root.after(5000, self.update_image)  # Resume slideshow after 5s
-
+        
         except Exception as e:
             print(f"Error loading image: {e}")
             self.current_index = (self.current_index + 1) % len(self.image_files)
@@ -146,7 +161,25 @@ class ImageViewer:
         if not self.image_files:
             return
         img_path = self.image_files[self.current_index]
-        rel_path = os.path.relpath(img_path, self.folder_path)
+        
+        # For multiple folders, find which folder this image belongs to
+        if isinstance(self.folder_path, list):
+            base_folder = None
+            for folder in self.folder_path:
+                try:
+                    rel_path = os.path.relpath(img_path, folder)
+                    if not rel_path.startswith('..'):
+                        base_folder = folder
+                        break
+                except ValueError:
+                    continue
+            if base_folder:
+                rel_path = os.path.relpath(img_path, base_folder)
+            else:
+                rel_path = img_path
+        else:
+            rel_path = os.path.relpath(img_path, self.folder_path)
+            
         confirm = messagebox.askyesno(
             "Delete Image",
             f"Do you really want to delete this image?\n{rel_path}"
@@ -166,13 +199,32 @@ class ImageViewer:
 if __name__ == "__main__":
     root = Tk()
     root.withdraw()
-    folder = filedialog.askdirectory(
-        title="Select Images Folder",
-        initialdir=os.path.expanduser("~/Pictures")
-    )
+    
+    folders = []
+    
+    # Allow selecting multiple folders
+    while True:
+        folder = filedialog.askdirectory(
+            title=f"Select Images Folder {len(folders) + 1} (Cancel to finish)",
+            initialdir=os.path.expanduser("~/Pictures")
+        )
+        if not folder:
+            break
+        if os.path.isdir(folder):
+            folders.append(folder)
+        
+        # Ask if user wants to add more folders
+        if folders:
+            add_more = messagebox.askyesno(
+                "Add More Folders?", 
+                f"Added {len(folders)} folder(s). Add another folder?"
+            )
+            if not add_more:
+                break
+    
     root.destroy()
     
-    if folder and os.path.isdir(folder):
-        ImageViewer(folder)
+    if folders:
+        ImageViewer(folders)
     else:
-        print("No folder selected or invalid folder path.")
+        print("No folders selected.")
